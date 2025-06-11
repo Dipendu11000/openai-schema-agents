@@ -1,0 +1,177 @@
+{
+  "openapi": "3.0.0",
+  "info": {
+    "title": "Restaurant Booking Agent",
+    "version": "1.0.0",
+    "description": "API for managing restaurant table bookings via Lambda for Bedrock Agents"
+  },
+  "paths": {
+    "/create_booking": {
+      "post": {
+        "operationId": "create_booking",
+        "description": "Create a new booking",
+        "parameters": [
+          {
+            "name": "date",
+            "in": "query",
+            "required": true,
+            "schema": { "type": "string" }
+          },
+          {
+            "name": "name",
+            "in": "query",
+            "required": true,
+            "schema": { "type": "string" }
+          },
+          {
+            "name": "hour",
+            "in": "query",
+            "required": true,
+            "schema": { "type": "string" }
+          },
+          {
+            "name": "num_guests",
+            "in": "query",
+            "required": true,
+            "schema": { "type": "integer" }
+          }
+        ]
+      }
+    },
+    "/get_booking_details": {
+      "post": {
+        "operationId": "get_booking_details",
+        "description": "Get booking details by ID",
+        "parameters": [
+          {
+            "name": "booking_id",
+            "in": "query",
+            "required": true,
+            "schema": { "type": "string" }
+          }
+        ]
+      }
+    },
+    "/delete_booking": {
+      "post": {
+        "operationId": "delete_booking",
+        "description": "Delete a booking by ID",
+        "parameters": [
+          {
+            "name": "booking_id",
+            "in": "query",
+            "required": true,
+            "schema": { "type": "string" }
+          }
+        ]
+      }
+    }
+  }
+}
+
+
+
+
+============asasasas===============
+
+
+import json
+import uuid
+import boto3
+
+dynamodb = boto3.resource('dynamodb')
+table = dynamodb.Table('restaurant_bookings')
+
+
+def get_named_parameter(event, name):
+    return next((p["value"] for p in event.get("parameters", []) if p["name"] == name), None)
+
+
+def get_booking_details(booking_id):
+    try:
+        response = table.get_item(Key={'booking_id': booking_id})
+        return response.get("Item", {"message": f"No booking found with ID {booking_id}"})
+    except Exception as e:
+        return {"error": str(e)}
+
+
+def create_booking(date, name, hour, num_guests):
+    try:
+        booking_id = str(uuid.uuid4())[:8]
+        table.put_item(Item={
+            'booking_id': booking_id,
+            'date': date,
+            'name': name,
+            'hour': hour,
+            'num_guests': int(num_guests)
+        })
+        return {"booking_id": booking_id}
+    except Exception as e:
+        return {"error": str(e)}
+
+
+def delete_booking(booking_id):
+    try:
+        table.delete_item(Key={'booking_id': booking_id})
+        return {"message": f"Booking with ID {booking_id} deleted successfully"}
+    except Exception as e:
+        return {"error": str(e)}
+
+
+def lambda_handler(event, context):
+    print("EVENT RECEIVED:", json.dumps(event))
+
+    action_group = event.get("actionGroup", "RestaurantBooking")
+    function = event.get("function")
+    version = event.get("messageVersion", "1.0")
+
+    try:
+        if function == "create_booking":
+            date = get_named_parameter(event, "date")
+            name = get_named_parameter(event, "name")
+            hour = get_named_parameter(event, "hour")
+            num_guests = get_named_parameter(event, "num_guests")
+            result = create_booking(date, name, hour, num_guests)
+
+        elif function == "get_booking_details":
+            booking_id = get_named_parameter(event, "booking_id")
+            result = get_booking_details(booking_id)
+
+        elif function == "delete_booking":
+            booking_id = get_named_parameter(event, "booking_id")
+            result = delete_booking(booking_id)
+
+        else:
+            result = {"error": "Unknown function called"}
+
+        # ✅ Correct Bedrock-compliant response
+        return {
+            "response": {
+                "actionGroup": action_group,
+                "function": function,
+                "functionResponse": {
+                    "responseBody": {
+                        "TEXT": {
+                            "body": json.dumps(result)
+                        }
+                    }
+                }
+            },
+            "messageVersion": version
+        }
+
+    except Exception as e:
+        return {
+            "response": {
+                "actionGroup": action_group,
+                "function": function,
+                "functionResponse": {
+                    "responseBody": {
+                        "TEXT": {
+                            "body": json.dumps({"error": str(e)})
+                        }
+                    }
+                }
+            },
+            "messageVersion": version
+        }
