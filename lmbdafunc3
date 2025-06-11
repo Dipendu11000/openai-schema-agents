@@ -1,0 +1,219 @@
+import json
+import uuid
+import boto3
+
+dynamodb = boto3.resource('dynamodb')
+table = dynamodb.Table('restaurant_bookings')
+
+
+def get_named_parameter(event, name):
+    for param in event.get("parameters", []):
+        if param["name"] == name:
+            return param["value"]
+    return None
+
+
+def get_booking_details(booking_id):
+    try:
+        response = table.get_item(Key={"booking_id": booking_id})
+        return response.get("Item", {"message": f"No booking found with ID {booking_id}"})
+    except Exception as e:
+        return {"error": str(e)}
+
+
+def create_booking(date, name, hour, num_guests):
+    try:
+        booking_id = str(uuid.uuid4())[:8]
+        table.put_item(
+            Item={
+                "booking_id": booking_id,
+                "date": date,
+                "name": name,
+                "hour": hour,
+                "num_guests": int(num_guests)
+            }
+        )
+        return {"booking_id": booking_id}
+    except Exception as e:
+        return {"error": str(e)}
+
+
+def delete_booking(booking_id):
+    try:
+        table.delete_item(Key={"booking_id": booking_id})
+        return {"message": f"Booking with ID {booking_id} deleted successfully"}
+    except Exception as e:
+        return {"error": str(e)}
+
+
+def lambda_handler(event, context):
+    print("Incoming event:", json.dumps(event))
+
+    operation_id = event.get("function", "")
+    message_version = event.get("messageVersion", "1.0")
+
+    try:
+        if operation_id == "get_booking_details":
+            booking_id = get_named_parameter(event, "booking_id")
+            result = get_booking_details(booking_id)
+
+        elif operation_id == "create_booking":
+            date = get_named_parameter(event, "date")
+            name = get_named_parameter(event, "name")
+            hour = get_named_parameter(event, "hour")
+            num_guests = get_named_parameter(event, "num_guests")
+            result = create_booking(date, name, hour, num_guests)
+
+        elif operation_id == "delete_booking":
+            booking_id = get_named_parameter(event, "booking_id")
+            result = delete_booking(booking_id)
+
+        else:
+            result = {"error": f"Unknown operation '{operation_id}'"}
+
+        # Ensure result is a stringified JSON
+        body_text = json.dumps(result)
+
+        response = {
+            "response": {
+                operation_id: {
+                    "responseBody": {
+                        "TEXT": {
+                            "body": body_text
+                        }
+                    }
+                }
+            },
+            "messageVersion": message_version
+        }
+
+        print("Outgoing response:", json.dumps(response))
+        return response
+
+    except Exception as e:
+        error_response = {
+            "response": {
+                operation_id: {
+                    "responseBody": {
+                        "TEXT": {
+                            "body": f"Error: {str(e)}"
+                        }
+                    }
+                }
+            },
+            "messageVersion": message_version
+        }
+        print("Error response:", json.dumps(error_response))
+        return error_response
+
+
+
+
+
+
+schema::::::::::::::::::::::::::
+
+
+{
+  "openapi": "3.0.0",
+  "info": {
+    "title": "RestaurantBookingAgent",
+    "version": "1.0.0",
+    "description": "API for managing restaurant bookings via Amazon Bedrock Agents."
+  },
+  "paths": {
+    "/get_booking_details": {
+      "post": {
+        "operationId": "get_booking_details",
+        "description": "Retrieve details of a restaurant booking using the booking ID.",
+        "parameters": [
+          {
+            "name": "booking_id",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "The ID of the booking to retrieve."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Returns booking details or not found message."
+          }
+        }
+      }
+    },
+    "/create_booking": {
+      "post": {
+        "operationId": "create_booking",
+        "description": "Create a new restaurant booking with date, name, time, and number of guests.",
+        "parameters": [
+          {
+            "name": "date",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "The date of the booking (YYYY-MM-DD)."
+          },
+          {
+            "name": "name",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "The name for the reservation."
+          },
+          {
+            "name": "hour",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "The time of the reservation (HH:MM)."
+          },
+          {
+            "name": "num_guests",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            },
+            "description": "Number of guests for the booking."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Returns the booking ID of the newly created booking."
+          }
+        }
+      }
+    },
+    "/delete_booking": {
+      "post": {
+        "operationId": "delete_booking",
+        "description": "Delete an existing restaurant booking using its booking ID.",
+        "parameters": [
+          {
+            "name": "booking_id",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "The ID of the booking to delete."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Returns a confirmation message or error."
+          }
+        }
+      }
+    }
+  }
+}
